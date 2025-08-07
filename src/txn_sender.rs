@@ -315,73 +315,77 @@ impl TxnSender for TxnSenderImpl {
             .map(|m| m.api_key)
             .unwrap_or("none".to_string());
 
-        if let Some(p3_handler) = &self.p3_handler {
-            let p3_handler = p3_handler.clone();
-            let wire_transaction = transaction_data.wire_transaction.clone();
-            let api_key_p3 = api_key.clone();
-            let sent_at = transaction_data.sent_at;
+        // Clone all necessary data once, outside the match, for the async task.
+        let p3_handler = self.p3_handler.clone();
+        let leader_tracker = self.leader_tracker.clone();
+        let connection_cache = self.connection_cache.clone();
+        let p3_port = self.p3_port;
+        let runtime = self.txn_sender_runtime.clone();
+        let wire_transaction = transaction_data.wire_transaction.clone();
+        let sent_at = transaction_data.sent_at;
 
-            self.txn_sender_runtime.spawn(async move {
+        self.txn_sender_runtime.spawn(async move {
+            if let Some(p3_handler) = p3_handler {
                 match p3_handler.send_transaction(&wire_transaction).await {
                     Ok(()) => {
                         statsd_time!(
                             "transaction_received_by_p3",
-                            sent_at.elapsed(), "api_key" => &api_key_p3);
+                            sent_at.elapsed(), "api_key" => &api_key);
                         return;
                     }
                     Err(e) => {
-                        error!("Failed to send transaction to P3: {}", e);
-                        statsd_count!("p3_send_error", 1, "api_key" => &api_key_p3);
+                        error!("Failed to send transaction to P3: {}, falling back to TPU", e);
+                        statsd_count!("p3_send_error", 1, "api_key" => &api_key);
                     }
                 }
-            });
-        }
-
-        let mut leader_num = 0;
-        for leader in self.leader_tracker.get_leaders() {
-            if leader.gossip.is_none() {
-                error!("leader {:?} has no gossip", leader);
-                continue;
             }
-            let connection_cache = self.connection_cache.clone();
-            let wire_transaction = transaction_data.wire_transaction.clone();
-            let api_key = api_key.clone();
-            let p3_port = self.p3_port;
-            let sent_at = transaction_data.sent_at;
-            self.txn_sender_runtime.spawn(async move {
-                let mut p3_addr = leader.gossip.unwrap();
-                p3_addr.set_port(p3_port);
 
-                for i in 0..SEND_TXN_RETRIES {
-                    let conn =
-                        connection_cache.get_nonblocking_connection(&p3_addr);
-                    if let Ok(result) = timeout(MAX_TIMEOUT_SEND_DATA, conn.send_data(&wire_transaction)).await {
-                            if let Err(e) = result {
-                                if i == SEND_TXN_RETRIES-1 {
+            let mut leader_num = 0;
+            for leader in leader_tracker.get_leaders() {
+                if leader.gossip.is_none() {
+                    error!("leader {:?} has no gossip", leader);
+                    continue;
+                }
+                let connection_cache = connection_cache.clone();
+                let wire_transaction = wire_transaction.clone();
+                let api_key = api_key.clone();
+                let leader_num_for_task = leader_num;
+
+                runtime.spawn(async move {
+                    let mut tpu_addr = leader.gossip.unwrap();
+                    tpu_addr.set_port(p3_port);
+
+                    for i in 0..SEND_TXN_RETRIES {
+                        let conn = connection_cache.get_nonblocking_connection(&tpu_addr);
+                        match timeout(MAX_TIMEOUT_SEND_DATA, conn.send_data(&wire_transaction)).await {
+                            Ok(Ok(())) => {
+                                let leader_num_str = leader_num_for_task.to_string();
+                                statsd_time!(
+                                    "transaction_received_by_leader",
+                                    sent_at.elapsed(), "leader_num" => &leader_num_str, "api_key" => &api_key, "retry" => "false");
+                                return;
+                            }
+                            Ok(Err(e)) => {
+                                if i == SEND_TXN_RETRIES - 1 {
                                     error!(
                                         retry = "false",
-                                        "Failed to send transaction to {:?}: {}",
+                                        "Failed to send transaction to leader {:?}: {}",
                                         leader, e
                                     );
                                     statsd_count!("transaction_send_error", 1, "retry" => "false", "last_attempt" => "true");
                                 } else {
                                     statsd_count!("transaction_send_error", 1, "retry" => "false", "last_attempt" => "false");
                                 }
-                        } else {
-                            let leader_num_str = leader_num.to_string();
-                            statsd_time!(
-                                "transaction_received_by_leader",
-                                sent_at.elapsed(), "leader_num" => &leader_num_str, "api_key" => &api_key, "retry" => "false");
-                            return;
+                            }
+                            Err(_) => {
+                                statsd_count!("transaction_send_timeout", 1);
+                            }
                         }
-                    } else {
-                        // Note: This is far too frequent to log. It will fill the disks on the host and cost too much on DD.
-                        statsd_count!("transaction_send_timeout", 1);
                     }
-                }
-            });
-            leader_num += 1;
-        }
+                });
+                leader_num += 1;
+            }
+        });
     }
 }
 
