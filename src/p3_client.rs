@@ -1,6 +1,6 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
 use solana_client::connection_cache::ConnectionCache;
 use solana_client::nonblocking::tpu_connection::TpuConnection;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::time::timeout;
 use tracing::{debug, error, warn};
 
@@ -19,15 +19,24 @@ impl P3Handler {
         }
     }
 
-    pub async fn send_transaction(&self, wire_transaction: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_transaction(
+        &self,
+        wire_transaction: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         debug!("Sending transaction to P3 address: {}", self.p3_addr);
-        
-        let conn = self.connection_cache.get_nonblocking_connection(&self.p3_addr);
+
+        let conn = self
+            .connection_cache
+            .get_nonblocking_connection(&self.p3_addr);
         let send_future = conn.send_data(wire_transaction);
-        
+
         match timeout(self.timeout_duration, send_future).await {
             Ok(Ok(())) => {
-                debug!("Successfully sent {} bytes to P3 address {}", wire_transaction.len(), self.p3_addr);
+                debug!(
+                    "Successfully sent {} bytes to P3 address {}",
+                    wire_transaction.len(),
+                    self.p3_addr
+                );
                 Ok(())
             }
             Ok(Err(e)) => {

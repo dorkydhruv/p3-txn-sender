@@ -1,9 +1,4 @@
-use std::{
-    fmt::Debug,
-    str::FromStr,
-    sync::Arc,
-    time::{Instant},
-};
+use std::{fmt::Debug, str::FromStr, sync::Arc, time::Instant};
 
 use cadence_macros::{statsd_count, statsd_time};
 use jsonrpsee::{

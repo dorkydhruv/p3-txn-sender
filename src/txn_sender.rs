@@ -41,7 +41,7 @@ pub struct TxnSenderImpl {
     p3_port: u16,
     transaction_store: Arc<dyn TransactionStore>,
     connection_cache: Arc<ConnectionCache>,
-    solana_rpc: Arc<dyn SolanaRpc>,
+    // solana_rpc: Arc<dyn SolanaRpc>,
     txn_sender_runtime: Arc<Runtime>,
     txn_send_retry_interval_seconds: usize,
     max_retry_queue_size: Option<usize>,
@@ -53,7 +53,7 @@ impl TxnSenderImpl {
         leader_tracker: Arc<LeaderTracker>,
         transaction_store: Arc<dyn TransactionStore>,
         connection_cache: Arc<ConnectionCache>,
-        solana_rpc: Arc<dyn SolanaRpc>,
+        // solana_rpc: Arc<dyn SolanaRpc>,
         txn_sender_threads: usize,
         txn_send_retry_interval_seconds: usize,
         max_retry_queue_size: Option<usize>,
@@ -71,7 +71,7 @@ impl TxnSenderImpl {
                 .unwrap_or(4819),
             transaction_store,
             connection_cache,
-            solana_rpc,
+            // solana_rpc,
             txn_sender_runtime: Arc::new(txn_sender_runtime),
             txn_send_retry_interval_seconds,
             max_retry_queue_size,
@@ -131,12 +131,11 @@ impl TxnSenderImpl {
                     }
                 }
                 for wire_transaction in wire_transactions.iter() {
-
                     if let Some(p3_handler) = &p3_handler {
                         let p3_handler = p3_handler.clone();
                         let wire_transaction = wire_transaction.clone();
                         let sent_at = Instant::now();
-                        
+
                         txn_sender_runtime.spawn(async move {
                             match p3_handler.send_transaction(&wire_transaction).await {
                                 Ok(()) => {
@@ -219,7 +218,7 @@ impl TxnSenderImpl {
             priority,
         } = compute_priority_details(&transaction_data.versioned_transaction);
         let priority_fees_enabled = (fee > 0).to_string();
-        let solana_rpc = self.solana_rpc.clone();
+        // let solana_rpc = self.solana_rpc.clone();
         let transaction_store = self.transaction_store.clone();
         let api_key = transaction_data
             .request_metadata
@@ -227,7 +226,7 @@ impl TxnSenderImpl {
             .map(|m| m.api_key.clone())
             .unwrap_or("none".to_string());
         self.txn_sender_runtime.spawn(async move {
-            let confirmed_at = solana_rpc.confirm_transaction(signature.clone()).await;
+            // let confirmed_at = solana_rpc.confirm_transaction(signature.clone()).await;
             let transcation_data = transaction_store.remove_transaction(signature);
             let mut retries = None;
             let mut max_retries = None;
@@ -237,24 +236,25 @@ impl TxnSenderImpl {
             }
 
             let retries_tag = bin_counter_to_tag(retries, &RETRY_COUNT_BINS.to_vec());
-            let max_retries_tag: String = bin_counter_to_tag(max_retries, &MAX_RETRIES_BINS.to_vec());
+            let max_retries_tag: String =
+                bin_counter_to_tag(max_retries, &MAX_RETRIES_BINS.to_vec());
 
-            // Collect metrics
-            // We separate the retry metrics to reduce the cardinality with API key and price.
-            let landed = if confirmed_at.is_some() {
-                statsd_count!("transactions_landed", 1, "priority_fees_enabled" => &priority_fees_enabled, "retries" => &retries_tag, "max_retries_tag" => &max_retries_tag);
-                statsd_count!("transactions_landed_by_key", 1, "api_key" => &api_key);
-                statsd_time!("transaction_land_time", sent_at.elapsed(), "api_key" => &api_key, "priority_fees_enabled" => &priority_fees_enabled);
-                "true"
-            } else {
-                statsd_count!("transactions_not_landed", 1, "priority_fees_enabled" => &priority_fees_enabled, "retries" => &retries_tag, "max_retries_tag" => &max_retries_tag);
-                statsd_count!("transactions_not_landed_by_key", 1, "api_key" => &api_key);
-                statsd_count!("transactions_not_landed_retries", 1, "priority_fees_enabled" => &priority_fees_enabled, "retries" => &retries_tag, "max_retries_tag" => &max_retries_tag);
-                "false"
-            };
-            statsd_time!("transaction_priority", priority, "landed" => &landed);
-            statsd_time!("transaction_priority_fee", fee, "landed" => &landed);
-            statsd_time!("transaction_compute_limit", cu_limit as u64, "landed" => &landed);
+            // // Collect metrics
+            // // We separate the retry metrics to reduce the cardinality with API key and price.
+            // let landed = if confirmed_at.is_some() {
+            //     statsd_count!("transactions_landed", 1, "priority_fees_enabled" => &priority_fees_enabled, "retries" => &retries_tag, "max_retries_tag" => &max_retries_tag);
+            //     statsd_count!("transactions_landed_by_key", 1, "api_key" => &api_key);
+            //     statsd_time!("transaction_land_time", sent_at.elapsed(), "api_key" => &api_key, "priority_fees_enabled" => &priority_fees_enabled);
+            //     "true"
+            // } else {
+            //     statsd_count!("transactions_not_landed", 1, "priority_fees_enabled" => &priority_fees_enabled, "retries" => &retries_tag, "max_retries_tag" => &max_retries_tag);
+            //     statsd_count!("transactions_not_landed_by_key", 1, "api_key" => &api_key);
+            //     statsd_count!("transactions_not_landed_retries", 1, "priority_fees_enabled" => &priority_fees_enabled, "retries" => &retries_tag, "max_retries_tag" => &max_retries_tag);
+            //     "false"
+            // };
+            // statsd_time!("transaction_priority", priority, "landed" => &landed);
+            // statsd_time!("transaction_priority_fee", fee, "landed" => &landed);
+            // statsd_time!("transaction_compute_limit", cu_limit as u64, "landed" => &landed);
         });
     }
 }
@@ -320,7 +320,7 @@ impl TxnSender for TxnSenderImpl {
             let wire_transaction = transaction_data.wire_transaction.clone();
             let api_key_p3 = api_key.clone();
             let sent_at = transaction_data.sent_at;
-            
+
             self.txn_sender_runtime.spawn(async move {
                 match p3_handler.send_transaction(&wire_transaction).await {
                     Ok(()) => {

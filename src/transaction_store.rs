@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Instant};
 
 use crate::rpc_server::RequestMetadata;
-use cadence_macros::{statsd_time};
+use cadence_macros::statsd_time;
 use dashmap::DashMap;
 use solana_sdk::transaction::VersionedTransaction;
 use tracing::error;
@@ -31,7 +31,6 @@ pub struct TransactionStoreImpl {
 
 impl TransactionStoreImpl {
     pub fn new() -> Self {
-        
         Self {
             transactions: Arc::new(DashMap::new()),
         }
@@ -78,6 +77,7 @@ impl TransactionStore for TransactionStoreImpl {
 pub fn get_signature(transaction: &TransactionData) -> Option<String> {
     transaction
         .versioned_transaction
-        .signatures.first()
+        .signatures
+        .first()
         .map(|s| s.to_string())
 }

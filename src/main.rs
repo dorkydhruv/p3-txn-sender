@@ -107,29 +107,39 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let transaction_store = Arc::new(TransactionStoreImpl::new());
-    let solana_rpc = Arc::new(GrpcGeyserImpl::new(
-        env.grpc_url.clone().unwrap(),
-        env.x_token.clone(),
-    ));
+    // let solana_rpc = Arc::new(GrpcGeyserImpl::new(
+    //     env.grpc_url.clone().unwrap(),
+    //     env.x_token.clone(),
+    // ));
     let rpc_client = Arc::new(RpcClient::new(env.rpc_url.unwrap()));
     let num_leaders = env.num_leaders.unwrap_or(2);
     let leader_offset = env.leader_offset.unwrap_or(0);
     let leader_tracker = match env::var("STATIC_IP") {
-        Ok(leader_addr) => Arc::new(StaticLeaderImpl::new(leader_addr).into()),
-        Err(_) => Arc::new(
-            LeaderTrackerImpl::new(rpc_client, solana_rpc.clone(), num_leaders, leader_offset)
-                .into(),
-        ),
+        Ok(leader_addr) => {
+            info!("Using static leader: {}", leader_addr);
+            Arc::new(StaticLeaderImpl::new(leader_addr).into())
+        }
+        Err(_) => {
+            error!("STATIC_IP environment variable not found or invalid, the commented out version works only if STATIC_IP is there");
+            // Don't exit - continue with a default static leader
+            return Ok(());
+        } // Err(_) => Arc::new(
+          //     LeaderTrackerImpl::new(rpc_client, solana_rpc.clone(), num_leaders, leader_offset)
+          //         .into(),
+          // ),
     };
 
     let txn_send_retry_interval_seconds = env.txn_send_retry_interval.unwrap_or(2);
-    
+
     let p3_handler = if env.p3_enabled.unwrap_or(false) {
         if let Some(p3_addr_str) = env.p3_addr {
             match p3_addr_str.parse() {
                 Ok(p3_addr) => {
                     info!("P3 enabled, sending to: {}", p3_addr);
-                    Some(Arc::new(p3_client::P3Handler::new(p3_addr, connection_cache.clone())))
+                    Some(Arc::new(p3_client::P3Handler::new(
+                        p3_addr,
+                        connection_cache.clone(),
+                    )))
                 }
                 Err(e) => {
                     error!("Invalid P3 address '{}': {}", p3_addr_str, e);
@@ -148,7 +158,7 @@ async fn main() -> anyhow::Result<()> {
         leader_tracker,
         transaction_store.clone(),
         connection_cache,
-        solana_rpc,
+        // solana_rpc,
         env.txn_sender_threads.unwrap_or(4),
         txn_send_retry_interval_seconds,
         env.max_retry_queue_size,
